@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Neushop Dashboard</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+  
+  <h1>Neushop Admin Dashboard</h1>
+
+  <section>
+    <h2>Low Stock Products</h2>
+    <input type="number" id="stockThreshold" placeholder="Enter stock threshold" />
+    <button onclick="fetchLowStock()">Check Low Stock</button>
+    <ul id="lowStockList"></ul>
+  </section>
+
+  <section>
+    <h2>Best Selling Products</h2>
+    <input type="number" id="days" placeholder="Days" />
+    <input type="number" id="limit" placeholder="Limit" />
+    <button onclick="fetchBestSellers()">Check Best Sellers</button>
+    <ul id="bestSellersList"></ul>
+  </section>
+
+  <section>
+    <h2>Revenue</h2>
+    <input type="number" id="revenueDays" placeholder="Days" />
+    <button onclick="fetchRevenue()">Check Revenue</button>
+    <div id="revenueDisplay"></div>
+  </section>
+
+  
+
+  <section id="ordersByStatus">
+    <h2>Filter Orders by Status</h2>
+    <label for="orderStatus">Select Status:</label>
+    <select id="orderStatus">
+        <option value="pending">Pending</option>
+        <option value="shipped">Shipped</option>
+        <option value="cancelled">Cancelled</option>
+        <option value="Processing">Processing</option>
+        <option value="Delivered">Delivered</option>
+        <option value="Completed">Completed</option>
+    </select>
+    <button onclick="fetchOrdersByStatus()">Fetch Orders</button>
+ 
+    <ul id="ordersStatusList"></ul>
+</section>
+ 
+
+  <button onclick="logout()" class="btn btn-danger">Logout</button>
+  <script>
+    function logout() {
+      fetch("/logout", { method: "POST" }).then(() => {
+        window.location.href = "/";
+      });
+    }
+  </script>
+
+
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
