@@ -2,7 +2,8 @@
 setlocal enabledelayedexpansion
 
 REM Base URL of your API
-set BASE_URL=http://127.0.0.1:8080
+@REM set BASE_URL=http://127.0.0.1:8080
+set BASE_URL=db-group5-452710.wl.r.appspot.com
 
 REM Seller
 echo ==== Register Seller ====
