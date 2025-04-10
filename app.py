@@ -332,63 +332,284 @@ def delete_record(table, pk):
     return jsonify({"message": "Record deleted"}), 200
 
 
-@app.route('/')
-def login_page():
-    return render_template('login.html')
+# @app.route('/')
+# def login_page():
+#     return render_template('login.html')
 
-@app.route('/dashboard')
-def dashboard():
-    return render_template('dashboard.html')
+# @app.route('/dashboard')
+# def dashboard():
+#     return render_template('dashboard.html')
 
-# 10. Login route
-@app.route('/login', methods=['POST'])
-def login():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
+def create_user_if_needed(username, password, email, cursor):
+    cursor.execute(
+        "SELECT user_id FROM USER WHERE username = %s OR email = %s",
+        (username, email)
+    )
+    row = cursor.fetchone()
 
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    query = "SELECT * FROM USER WHERE username = %s AND password = %s"
-    cursor.execute(query, (username, password))
-    user = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    if row:
+        return "", row["user_id"]
 
-    if user:
-        return jsonify({"message": "Login successful", "user": user['username']})
-    else:
-        return jsonify({"error": "Invalid credentials"}), 401
+    new_user_id = str(uuid.uuid4())
+    user_insert_sql = (
+        f"INSERT INTO USER (user_id, username, password, email) "
+        f"VALUES ('{new_user_id}', '{username}', '{password}', '{email}')"
+    )
 
-@app.route('/register', methods=['POST'])
-def register():
-    data = request.json
+    return user_insert_sql, new_user_id
+
+@app.route('/register/seller', methods=['POST'])
+def seller_register():
+    data = request.json or {}
     username = data.get('username')
     password = data.get('password')
     email = data.get('email')
-
+    store_name = data.get('store_name')
+    business_license = data.get('business_license')
     if not username or not password or not email:
-        return jsonify({"error": "Missing fields"}), 400
-
+        return jsonify({"error": "Missing username, password, or email"}), 400
+    if not store_name or not business_license:
+        return jsonify({"error": "Missing store_name or business_license"}), 400
     conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # Check if username or email already exists
-    cursor.execute("SELECT * FROM USER WHERE username = %s OR email = %s", (username, email))
-    if cursor.fetchone():
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT s.user_id
+            FROM USER u
+            JOIN SELLER s ON u.user_id = s.user_id
+            WHERE u.username = %s
+        """, (username,))
+        seller_row = cursor.fetchone()
+        if seller_row:
+            return jsonify({"error": "User is already a seller"}), 409
+        user_sql, user_id = create_user_if_needed(username, password, email, cursor)
+        seller_sql = (
+            f"INSERT INTO SELLER (user_id, store_name, business_license) "
+            f"VALUES ('{user_id}', '{store_name}', '{business_license}')"
+        )
+        if user_sql != "":
+            cursor.execute(user_sql)
+        cursor.execute(seller_sql)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": f"Database error: {e}"}), 400
+    finally:
         cursor.close()
         conn.close()
-        return jsonify({"error": "Username or email already exists"}), 409
+    return jsonify({"message": "Seller registration successful", "user": username}), 201
 
-    user_id = str(uuid.uuid4())  # Generate unique user_id
-    query = "INSERT INTO USER (user_id, username, password, email) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (user_id, username, password, email))
-    conn.commit()
+@app.route('/register/admin', methods=['POST'])
+def admin_register():
+    data = request.get_json(silent=True)
+    username = data.get('username')
+    password = data.get('password')
+    email = data.get('email')
+    admin_level = data.get('admin_level', '1')
+    if not username or not password or not email:
+        return jsonify({"error": "Missing username, password, or email"}), 400
+    if not admin_level:
+        return jsonify({"error": "admin_level is required for admin"}), 400
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT a.user_id
+            FROM USER u
+            JOIN ADMIN a ON u.user_id = a.user_id
+            WHERE u.username = %s
+        """, (username,))
+        admin_row = cursor.fetchone()
+        if admin_row:
+            return jsonify({"error": "User is already an admin"}), 409
+        user_sql, user_id = create_user_if_needed(username, password, email, cursor)
+        admin_sql = (
+            f"INSERT INTO ADMIN (user_id, admin_level) "
+            f"VALUES ('{user_id}', '{admin_level}')"
+        )
+        if user_sql != "":
+            cursor.execute(user_sql)
+        cursor.execute(admin_sql)
+        conn.commit()
+    except mysql.connector.Error as err:
+        conn.rollback()
+        return jsonify({"error": f"Database error: {err}"}), 400
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({"message": "Admin registration successful", "user": username}), 201
 
-    cursor.close()
-    conn.close()
+@app.route('/register/customer', methods=['POST'])
+def customer_register():
+    data = request.get_json(silent=True)
+    username = data.get('username')
+    password = data.get('password')
+    email = data.get('email')
+    first_name = data.get('first_name', '')
+    last_name = data.get('last_name', '')
+    phone = data.get('phone', '')
+    if not username or not password or not email:
+        return jsonify({"error": "Missing username, password, or email"}), 400
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT c.user_id
+            FROM USER u
+            JOIN CUSTOMER c ON u.user_id = c.user_id
+            WHERE u.username = %s
+        """, (username,))
+        customer_row = cursor.fetchone()
+        if customer_row:
+            return jsonify({"error": "User is already a customer"}), 409
+        user_sql, user_id = create_user_if_needed(username, password, email, cursor)
+        customer_sql = (
+            f"INSERT INTO CUSTOMER (user_id, first_name, last_name, phone) "
+            f"VALUES ('{user_id}', '{first_name}', '{last_name}', '{phone}')"
+        )
+        if user_sql != "":
+            cursor.execute(user_sql)
+        cursor.execute(customer_sql)
+        conn.commit()
+    except mysql.connector.Error as err:
+        conn.rollback()
+        return jsonify({"error": f"Database error: {err}"}), 400
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({"message": "Customer registration successful", "user": username}), 201
 
-    return jsonify({"message": "Registration successful", "user": username})
+@app.route('/login/seller', methods=['POST'])
+def seller_login():
+    data = request.get_json(silent=True)
+    username = data.get('username')
+    password = data.get('password')
+    if not username or not password:
+        return jsonify({"error": "Missing username or password"}), 400
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT user_id FROM USER WHERE username = %s AND password = %s", (username, password))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return jsonify({"error": "Invalid credentials"}), 401
+        cursor.execute("""
+            SELECT s.user_id
+            FROM SELLER s
+            WHERE s.user_id = %s
+        """, (user_row["user_id"],))
+        seller_row = cursor.fetchone()
+        if not seller_row:
+            return jsonify({"error": "User is not a seller"}), 403
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({"message": "Seller login successful", "user": username}), 200
+
+@app.route('/login/admin', methods=['POST'])
+def admin_login():
+    data = request.get_json(silent=True)
+    username = data.get('username')
+    password = data.get('password')
+    if not username or not password:
+        return jsonify({"error": "Missing username or password"}), 400
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT user_id FROM USER WHERE username = %s AND password = %s", (username, password))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return jsonify({"error": "Invalid credentials"}), 401
+        cursor.execute("""
+            SELECT a.user_id
+            FROM ADMIN a
+            WHERE a.user_id = %s
+        """, (user_row["user_id"],))
+        admin_row = cursor.fetchone()
+        if not admin_row:
+            return jsonify({"error": "User is not an admin"}), 403
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({"message": "Admin login successful", "user": username}), 200
+
+@app.route('/login/customer', methods=['POST'])
+def customer_login():
+    data = request.get_json(silent=True)
+    username = data.get('username')
+    password = data.get('password')
+    if not username or not password:
+        return jsonify({"error": "Missing username or password"}), 400
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT user_id FROM USER WHERE username = %s AND password = %s", (username, password))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return jsonify({"error": "Invalid credentials"}), 401
+        cursor.execute("""
+            SELECT c.user_id
+            FROM CUSTOMER c
+            WHERE c.user_id = %s
+        """, (user_row["user_id"],))
+        customer_row = cursor.fetchone()
+        if not customer_row:
+            return jsonify({"error": "User is not a customer"}), 403
+    finally:
+        cursor.close()
+        conn.close()
+    return jsonify({"message": "Customer login successful", "user": username}), 200
+
+
+# # 10. Login route
+# @app.route('/login', methods=['POST'])
+# def login():
+#     data = request.json
+#     username = data.get('username')
+#     password = data.get('password')
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor(dictionary=True)
+#     query = "SELECT * FROM USER WHERE username = %s AND password = %s"
+#     cursor.execute(query, (username, password))
+#     user = cursor.fetchone()
+#     cursor.close()
+#     conn.close()
+
+#     if user:
+#         return jsonify({"message": "Login successful", "user": user['username']})
+#     else:
+#         return jsonify({"error": "Invalid credentials"}), 401
+
+# @app.route('/register', methods=['POST'])
+# def register():
+#     data = request.json
+#     username = data.get('username')
+#     password = data.get('password')
+#     email = data.get('email')
+
+#     if not username or not password or not email:
+#         return jsonify({"error": "Missing fields"}), 400
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+
+#     # Check if username or email already exists
+#     cursor.execute("SELECT * FROM USER WHERE username = %s OR email = %s", (username, email))
+#     if cursor.fetchone():
+#         cursor.close()
+#         conn.close()
+#         return jsonify({"error": "Username or email already exists"}), 409
+
+#     user_id = str(uuid.uuid4())  # Generate unique user_id
+#     query = "INSERT INTO USER (user_id, username, password, email) VALUES (%s, %s, %s, %s)"
+#     cursor.execute(query, (user_id, username, password, email))
+#     conn.commit()
+
+#     cursor.close()
+#     conn.close()
+
+#     return jsonify({"message": "Registration successful", "user": username})
 
 
 
